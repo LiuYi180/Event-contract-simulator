@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加密货币价格预测游戏</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        dark: '#000000',
+                        light: '#FFFFFF',
+                        bull: '#2BFF00',
+                        bear: '#FF6388',
+                        deriv: '#00FFFF',
+                        deriv_ma: '#00BFFF',
+                        second_deriv: '#FFA500',
+                        second_deriv_ma: '#FFD700',
+                        third_deriv: '#FF00FF',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .glass {
+                background: rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            .scrollbar-thin {
+                scrollbar-width: thin;
+            }
+            .scrollbar-none::-webkit-scrollbar {
+                display: none;
+            }
+            .scrollbar-custom::-webkit-scrollbar {
+                width: 4px;
+                height: 4px;
+            }
+            .scrollbar-custom::-webkit-scrollbar-track {
+                background: #000000;
+            }
+            .scrollbar-custom::-webkit-scrollbar-thumb {
+                background: #2BFF00;
+                border-radius: 2px;
+            }
+            .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+                background: #25e600;
+            }
+            .animate-pulse-slow {
+                animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+            .animate-countdown {
+                animation: countdown 10s linear infinite;
+            }
+            @keyframes countdown {
+                0% { width: 100%; }
+                100% { width: 0%; }
+            }
+        }
+    </style>
+</head>
+<body class="bg-dark text-light font-sans min-h-screen flex flex-col">
+    <!-- 顶部导航栏 -->
+    <header class="glass sticky top-0 z-50 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center space-x-2">
+            <i class="fa fa-line-chart text-2xl text-bull"></i>
+            <h1 class="text-xl font-bold">加密货币价格预测游戏</h1>
+        </div>
+        <div class="flex items-center space-x-6">
+            <div class="hidden md:flex items-center">
+                <span id="current-time" class="text-sm text-gray-400"></span>
+            </div>
+            <div class="flex space-x-2">
+                <button id="switch-btc" class="px-3 py-1 rounded-full bg-bull/20 text-bull border border-bull/30">BTCUSDT</button>
+                <button id="switch-eth" class="px-3 py-1 rounded-full bg-dark text-gray-400 border border-gray-700">ETHUSDT</button>
+            </div>
+            <button id="reset-btn" class="px-4 py-2 rounded bg-dark text-gray-400 border border-gray-700 hover:bg-gray-800 transition-all duration-300">
+                <i class="fa fa-refresh mr-1"></i>重置游戏
+            </button>
+        </div>
+    </header>
+
+    <!-- 主要内容区 -->
+    <main class="flex-grow container mx-auto px-4 py-6">
+        <!-- 统计信息卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="glass rounded-lg p-5 flex flex-col">
+                <div class="text-sm text-gray-400 mb-1">当前价格</div>
+                <div class="text-2xl font-bold" id="current-price">-</div>
+                <div class="text-xs text-gray-400 mt-1" id="price-change">-</div>
+            </div>
+            <div class="glass rounded-lg p-5 flex flex-col">
+                <div class="text-sm text-gray-400 mb-1">总游戏轮数</div>
+                <div class="text-2xl font-bold" id="total-rounds">0</div>
+            </div>
+            <div class="glass rounded-lg p-5 flex flex-col">
+                <div class="text-sm text-gray-400 mb-1">胜率</div>
+                <div class="text-2xl font-bold" id="win-rate">0%</div>
+                <div class="text-xs text-gray-400 mt-1" id="win-loss">0胜 0负</div>
+            </div>
+        </div>
+
+        <!-- 下注控制区 -->
+        <div class="glass rounded-lg p-5 mb-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4">
+                <div class="mb-4 md:mb-0">
+                    <label class="text-sm text-gray-400 block mb-1">选择预测周期</label>
+                    <div class="flex flex-wrap gap-2">
+                        <button class="time-btn px-3 py-1 rounded-full bg-bull/20 text-bull border border-bull/30" data-time="10">10分钟</button>
+                        <button class="time-btn px-3 py-1 rounded-full bg-dark text-gray-400 border border-gray-700" data-time="30">30分钟</button>
+                        <button class="time-btn px-3 py-1 rounded-full bg-dark text-gray-400 border border-gray-700" data-time="60">1小时</button>
+                        <button class="time-btn px-3 py-1 rounded-full bg-dark text-gray-400 border border-gray-700" data-time="1440">1天</button>
+                    </div>
+                </div>
+                <div class="w-full md:w-auto">
+                    <label class="text-sm text-gray-400 block mb-1">当前状态</label>
+                    <div id="status" class="flex items-center justify-between bg-dark p-3 rounded-lg border border-gray-700">
+                        <div id="bet-status" class="text-gray-400">
+                            <i class="fa fa-clock-o mr-1"></i>等待下注
+                        </div>
+                        <div id="countdown-container" class="hidden">
+                            <div class="h-2 bg-gray-800 rounded-full overflow-hidden">
+                                <div id="countdown-bar" class="h-full bg-bull animate-countdown"></div>
+                            </div>
+                            <div class="text-xs text-bull text-right mt-1">
+                                <span id="countdown-text">10秒后刷新</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="bet-actions" class="flex justify-center space-x-4 mt-4">
+                <button id="bet-up" class="px-6 py-3 bg-bull text-dark rounded-lg font-bold flex items-center hover:bg-bull/80 transition-all duration-300 transform hover:scale-105">
+                    <i class="fa fa-arrow-up mr-2"></i>看涨
+                </button>
+                <button id="bet-down" class="px-6 py-3 bg-bear text-dark rounded-lg font-bold flex items-center hover:bg-bear/80 transition-all duration-300 transform hover:scale-105">
+                    <i class="fa fa-arrow-down mr-2"></i>看跌
+                </button>
+            </div>
+            
+            <div id="bet-results-container" class="mt-4 space-y-3"></div>
+        </div>
+
+        <!-- K线图表 -->
+        <div class="glass rounded-lg p-5 mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold">K线图</h2>
+                <div class="text-sm text-gray-400">
+                    <i class="fa fa-refresh mr-1"></i>
+                    <span id="last-refreshed">加载中...</span>
+                </div>
+            </div>
+            <div id="kline-chart" class="h-[500px]"></div>
+        </div>
+
+        <!-- 实时价差图表 -->
+        <div class="glass rounded-lg p-5 mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold">实时价差图表</h2>
+                <div class="text-sm text-gray-400">
+                    <i class="fa fa-refresh mr-1"></i>
+                    <span id="spread-last-refreshed">加载中...</span>
+                </div>
+            </div>
+            <div id="spread-chart" class="h-[300px]"></div>
+        </div>
+
+        <!-- 历史记录 -->
+        <div class="glass rounded-lg p-5">
+            <h2 class="text-lg font-bold mb-4">历史记录</h2>
+            <div id="history-container" class="overflow-x-auto scrollbar-custom">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-700">
+                            <th class="py-2 text-left">时间</th>
+                            <th class="py-2 text-left">周期</th>
+                            <th class="py-2 text-left">方向</th>
+                            <th class="py-2 text-left">下注价格</th>
+                            <th class="py-2 text-left">结算价格</th>
+                            <th class="py-2 text-left">结果</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table">
+                        <tr>
+                            <td colspan="6" class="py-4 text-center text-gray-400">暂无记录</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="glass py-4 px-6 text-center text-sm text-gray-400 mt-6">
+        <p>© 2025 加密货币价格预测游戏 | 数据来源: 加密货币交易所 API</p>
+    </footer>
+
+    <script>
+        // 全局变量
+        let klineChart = null;
+        let spreadChart = null;
+        let selectedTime = 10; // 默认10分钟预测周期
+        let countdown = 10; // 初始倒计时
+        let refreshInterval = 10; // 刷新间隔(秒)
+        let lastPrice = null;
+        let currentSymbol = 'BTCUSDT';
+        let priceDataCache = {}; // 数据缓存
+        let isChartLoading = false; // 图表加载状态
+
+        // 初始化图表
+        function initChart() {
+            const klineLayout = {
+                title: 'K线图',
+                xaxis: {
+                    title: '时间',
+                    type: 'date',
+                    gridcolor: '#333',
+                    tickfont: {
+                        color: '#999'
+                    }
+                },
+                yaxis: {
+                    title: '价格 (USDT)',
+                    gridcolor: '#333',
+                    tickfont: {
+                        color: '#999'
+                    }
+                },
+                paper_bgcolor: '#000',
+                plot_bgcolor: '#000',
+                font: {
+                    color: '#fff'
+                },
+                margin: {
+                    t: 40,
+                    b: 40,
+                    l: 60,
+                    r: 20
+                }
+            };
+
+            Plotly.newPlot('kline-chart', [], klineLayout).then(chart => {
+                klineChart = chart;
+                if (priceDataCache[currentSymbol]) {
+                    updateChart(priceDataCache[currentSymbol]);
+                }
+            });
+
+            const spreadLayout = {
+                title: '实时价差图表',
+                xaxis: {
+                    title: '时间',
+                    type: 'date',
+                    gridcolor: '#333',
+                    tickfont: {
+                        color: '#999'
+                    }
+                },
+                yaxis: {
+                    title: '价差 (USDT)',
+                    gridcolor: '#333',
+                    tickfont: {
+                        color: '#999'
+                    }
+                },
+                paper_bgcolor: '#000',
+                plot_bgcolor: '#000',
+                font: {
+                    color: '#fff'
+                },
+                margin: {
+                    t: 40,
+                    b: 40,
+                    l: 60,
+                    r: 20
+                }
+            };
+
+            Plotly.newPlot('spread-chart', [], spreadLayout).then(chart => {
+                spreadChart = chart;
+                if (priceDataCache[currentSymbol]) {
+                    updateSpreadChart(priceDataCache[currentSymbol]);
+                }
+            });
+        }
+
+        // 更新K线图
+        function updateChart(data) {
+            if (!data || data.length === 0 || isChartLoading) return;
+            
+            isChartLoading = true;
+            requestAnimationFrame(() => {
+                const timestamps = data.map(item => new Date(item.timestamp));
+                const opens = data.map(item => item.open);
+                const highs = data.map(item => item.high);
+                const lows = data.map(item => item.low);
+                const closes = data.map(item => item.close);
+                
+                const trace = {
+                    type: 'candlestick',
+                    x: timestamps,
+                    open: opens,
+                    high: highs,
+                    low: lows,
+                    close: closes,
+                    increasing: { line: { color: '#2BFF00' } },
+                    decreasing: { line: { color: '#FF6388' } },
+                    showlegend: false
+                };
+
+                if (klineChart) {
+                    Plotly.react('kline-chart', [trace], klineChart.layout, {
+                        animate: false // 关闭动画提高性能
+                    });
+                }
+                isChartLoading = false;
+            });
+        }
+
+        // 更新价差图表
+        function updateSpreadChart(data) {
+            if (!data || data.length < 2 || isChartLoading) return; // 确保有足够数据点
+            
+            isChartLoading = true;
+            requestAnimationFrame(() => {
+                const timestamps = data.map(item => new Date(item.timestamp));
+                const spreads = [];
+                const increasingIntervals = [];
+                const decreasingIntervals = [];
+    
+                // 计算价差并记录涨跌区间
+                for (let i = 1; i < data.length; i++) {
+                    const spread = data[i].close - data[i - 1].close;
+                    spreads.push(spread);
+                    
+                    // 记录涨跌区间用于色块显示
+                    if (spread > 0) {
+                        increasingIntervals.push({
+                            start: timestamps[i-1],
+                            end: timestamps[i]
+                        });
+                    } else if (spread < 0) {
+                        decreasingIntervals.push({
+                            start: timestamps[i-1],
+                            end: timestamps[i]
+                        });
+                    }
+                }
+    
+                // 创建价差线
+                const trace = {
+                    type: 'scatter',
+                    x: timestamps.slice(1),
+                    y: spreads,
+                    mode: 'lines',
+                    line: {
+                        color: '#00BFFF'
+                    },
+                    name: '价差'
+                };
+    
+                // 创建涨跌背景色块
+                const shapes = [];
+                
+                // 添加上涨区间绿色色块
+                increasingIntervals.forEach(interval => {
+                    shapes.push({
+                        type: 'rect',
+                        x0: interval.start,
+                        y0: Math.min(0, Math.min(...spreads)),
+                        x1: interval.end,
+                        y1: Math.max(0, Math.max(...spreads)),
+                        fillcolor: 'rgba(43, 255, 0, 0.1)', // 绿色透明
+                        line: { width: 0 },
+                        layer: 'below'
+                    });
+                });
+                
+                // 添加下跌区间红色色块
+                decreasingIntervals.forEach(interval => {
+                    shapes.push({
+                        type: 'rect',
+                        x0: interval.start,
+                        y0: Math.min(0, Math.min(...spreads)),
+                        x1: interval.end,
+                        y1: Math.max(0, Math.max(...spreads)),
+                        fillcolor: 'rgba(255, 99, 136, 0.1)', // 红色透明
+                        line: { width: 0 },
+                        layer: 'below'
+                    });
+                });
+    
+                // 更新图表布局，添加色块
+                const updatedLayout = {
+                    ...spreadChart.layout,
+                    shapes: shapes
+                };
+    
+                if (spreadChart) {
+                    Plotly.react('spread-chart', [trace], updatedLayout, {
+                        animate: false
+                    });
+                }
+                isChartLoading = false;
+            });
+        }
+
+        // 更新价格信息
+        function updatePriceInfo(price) {
+            document.getElementById('current-price').textContent = price.toFixed(2);
+            
+            // 计算价格变化
+            if (lastPrice !== null) {
+                const change = price - lastPrice;
+                const changePercent = (change / lastPrice) * 100;
+                const changeElement = document.getElementById('price-change');
+                
+                changeElement.textContent = `${change > 0 ? '+' : ''}${change.toFixed(2)} (${changePercent.toFixed(2)}%)`;
+                
+                if (change > 0) {
+                    changeElement.className = 'text-xs text-bull mt-1';
+                } else if (change < 0) {
+                    changeElement.className = 'text-xs text-bear mt-1';
+                } else {
+                    changeElement.className = 'text-xs text-gray-400 mt-1';
+                }
+            }
+            
+            lastPrice = price;
+        }
+
+        // 更新游戏状态
+        function updateGameState(state) {
+            document.getElementById('total-rounds').textContent = state.rounds;
+            document.getElementById('win-loss').textContent = `${state.wins}胜 ${state.rounds - state.wins}负`;
+            
+            const winRate = state.rounds > 0 ? (state.wins / state.rounds * 100).toFixed(2) : 0;
+            document.getElementById('win-rate').textContent = `${winRate}%`;
+            
+            // 更新下注状态
+            updateBetDisplays(state.bets);
+        }
+
+        // 更新下注显示
+        function updateBetDisplays(bets) {
+            const betResultsContainer = document.getElementById('bet-results-container');
+            betResultsContainer.innerHTML = '';
+            
+            if (!bets || bets.length === 0) {
+                document.getElementById('bet-status').innerHTML = '<i class="fa fa-clock-o mr-1"></i>等待下注';
+                document.getElementById('countdown-container').classList.add('hidden');
+                return;
+            }
+            
+            document.getElementById('bet-status').innerHTML = '<i class="fa fa-clock-o mr-1"></i>当前下注中';
+            document.getElementById('countdown-container').classList.remove('hidden');
+            
+            // 按到期时间排序
+            const sortedBets = [...bets].sort((a, b) => {
+                return (a.start_time + a.prediction_window * 60) - (b.start_time + b.prediction_window * 60);
+            });
+            
+            sortedBets.forEach(bet => {
+                const now = Date.now() / 1000;
+                const timeLeft = Math.max(0, bet.prediction_window * 60 - (now - bet.start_time));
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = Math.floor(timeLeft % 60);
+                
+                const betElement = document.createElement('div');
+                const directionClass = bet.direction === 'up' ? 'bg-bull/10 border border-bull/20' : 'bg-bear/10 border border-bear/20';
+                const directionText = bet.direction === 'up' ? '看涨' : '看跌';
+                
+                betElement.className = `p-3 rounded-lg ${directionClass} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2`;
+                
+                let betHtml = `
+                    <div class="flex-1">
+                        <div class="font-medium">${directionText} @ ${bet.price.toFixed(2)} USDT</div>
+                        <div class="text-xs text-gray-400">
+                            周期: ${getWindowText(bet.prediction_window)}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="text-xs text-gray-400">剩余: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}</div>
+                `;
+                
+                if (!bet.settled) {
+                    betHtml += `<button class="text-gray-400 hover:text-bull/80" data-id="${bet.id}">
+                        <i class="fa fa-times"></i>
+                    </button>`;
+                } else {
+                    const resultClass = bet.result ? 'text-bull' : 'text-bear';
+                    const resultIcon = bet.result ? '<i class="fa fa-check"></i>' : '<i class="fa fa-times"></i>';
+                    betHtml += `<span class="${resultClass}">${resultIcon} ${bet.result ? '成功' : '失败'}</span>`;
+                }
+                
+                betHtml += `</div>`;
+                betElement.innerHTML = betHtml;
+                
+                betResultsContainer.appendChild(betElement);
+                
+                // 添加取消下注事件（前端模拟，实际应调用后端接口）
+                if (!bet.settled) {
+                    betElement.querySelector('button').addEventListener('click', (e) => {
+                        const betId = parseInt(e.target.dataset.id);
+                        // 实际项目中应调用后端取消接口
+                        console.log(`取消下注 ID: ${betId}`);
+                    });
+                }
+            });
+            
+            // 更新倒计时
+            updateBetCountdown(sortedBets);
+        }
+
+        // 获取周期文本
+        function getWindowText(minutes) {
+            if (minutes < 60) {
+                return `${minutes}分钟`;
+            } else if (minutes < 1440) {
+                return `${Math.floor(minutes / 60)}小时`;
+            } else {
+                return `${Math.floor(minutes / 1440)}天`;
+            }
+        }
+
+        // 更新下注倒计时
+        function updateBetCountdown(bets) {
+            if (!bets || bets.length === 0) return;
+            
+            const now = Date.now() / 1000;
+            const earliestBet = bets[0]; // 已排序，第一个是最早到期的
+            const timeLeft = Math.max(0, earliestBet.prediction_window * 60 - (now - earliestBet.start_time));
+            
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = Math.floor(timeLeft % 60);
+            
+            document.getElementById('countdown-text').textContent = `
+                最早到期倒计时: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}
+            `;
+            
+            // 更新进度条
+            const progress = (timeLeft / (earliestBet.prediction_window * 60)) * 100;
+            document.getElementById('countdown-bar').style.width = `${progress}%`;
+        }
+
+        // 更新历史记录
+        function updateHistory(bets) {
+            const historyTable = document.getElementById('history-table');
+            historyTable.innerHTML = '';
+            
+            const settledBets = (bets || []).filter(bet => bet.settled);
+            
+            if (settledBets.length === 0) {
+                historyTable.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="py-4 text-center text-gray-400">暂无记录</td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            // 按时间排序，最新的在前
+            const sortedBets = [...settledBets].sort((a, b) => b.start_time - a.start_time);
+            
+            sortedBets.forEach(bet => {
+                const row = document.createElement('tr');
+                row.className = 'border-b border-gray-700';
+                
+                const resultClass = bet.result ? 'text-bull' : 'text-bear';
+                const resultIcon = bet.result ? '<i class="fa fa-check"></i>' : '<i class="fa fa-times"></i>';
+                const directionText = bet.direction === 'up' ? '看涨' : '看跌';
+                const windowText = getWindowText(bet.prediction_window);
+                
+                row.innerHTML = `
+                    <td class="py-3">${new Date(bet.start_time * 1000).toLocaleString()}</td>
+                    <td class="py-3">${windowText}</td>
+                    <td class="py-3">${directionText}</td>
+                    <td class="py-3">${bet.price.toFixed(2)}</td>
+                    <td class="py-3">${bet.final_price.toFixed(2)}</td>
+                    <td class="py-3 ${resultClass}">${resultIcon} ${bet.result ? '成功' : '失败'}</td>
+                `;
+                
+                historyTable.appendChild(row);
+            });
+        }
+
+        // 获取K线数据（带缓存）
+        function fetchKlineData() {
+            let interval;
+            if (selectedTime <= 1) {
+                interval = '1m';
+            } else if (selectedTime <= 3) {
+                interval = '3m';
+            } else if (selectedTime <= 5) {
+                interval = '5m';
+            } else if (selectedTime <= 15) {
+                interval = '15m';
+            } else if (selectedTime <= 30) {
+                interval = '30m';
+            } else if (selectedTime <= 60) {
+                interval = '1h';
+            } else if (selectedTime <= 120) {
+                interval = '2h';
+            } else if (selectedTime <= 240) {
+                interval = '4h';
+            } else if (selectedTime <= 360) {
+                interval = '6h';
+            } else if (selectedTime <= 480) {
+                interval = '8h';
+            } else if (selectedTime <= 720) {
+                interval = '12h';
+            } else if (selectedTime <= 1440) {
+                interval = '1d';
+            } else {
+                interval = '1d'; // 默认使用1天间隔
+            }
+
+            const cacheKey = `${currentSymbol}-${interval}`;
+
+            // 检查缓存（5秒内不重复请求）
+            if (priceDataCache[cacheKey] && Date.now() - priceDataCache.timestamp < 1000 * 5) {
+                updateChart(priceDataCache[cacheKey]);
+                updateSpreadChart(priceDataCache[cacheKey]); // 确保价差图表也会更新
+                return;
+            }
+
+            fetch(`/api/kline/${currentSymbol}/${interval}`)
+              .then(response => response.json())
+              .then(data => {
+                    if (data.success && data.data) {
+                        // 缓存数据
+                        priceDataCache[cacheKey] = data.data;
+                        priceDataCache.timestamp = Date.now();
+
+                        updateChart(data.data);
+                        document.getElementById('last-refreshed').textContent = new Date().toLocaleString();
+
+                        // 更新当前价格
+                        if (data.data.length > 0) {
+                            const latestPrice = data.data[data.data.length - 1].close;
+                            updatePriceInfo(latestPrice);
+                        }
+
+                        // 更新价差图表
+                        updateSpreadChart(data.data); // 确保价差图表也会更新
+                        document.getElementById('spread-last-refreshed').textContent = new Date().toLocaleString();
+                    }
+                })
+              .catch(error => {
+                    console.error('获取K线数据失败:', error);
+                });
+        }
+
+        // 获取游戏状态
+        function fetchGameState() {
+            fetch('/api/state')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.state) {
+                        updateGameState(data.state);
+                        updateHistory(data.state.bets);
+                        refreshInterval = data.refresh_interval || 10;
+                        currentSymbol = data.state.symbol;
+                        updateSymbolButtons();
+                    }
+                })
+                .catch(error => {
+                    console.error('获取游戏状态失败:', error);
+                });
+        }
+
+        // 下注
+        function placeBet(direction) {
+            fetch(`/api/bet/${direction}/${selectedTime}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        fetchGameState(); // 刷新游戏状态
+                    } else {
+                        alert(data.result || '下注失败');
+                    }
+                })
+                .catch(error => {
+                    console.error('下注失败:', error);
+                });
+        }
+
+        // 重置游戏
+        function resetGame() {
+            if (confirm('确定要重置游戏吗？这将清除所有历史记录和当前下注。')) {
+                fetch('/api/reset')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            fetchGameState(); // 刷新游戏状态
+                        }
+                    })
+                    .catch(error => {
+                        console.error('重置游戏失败:', error);
+                    });
+            }
+        }
+
+        // 切换币种
+        function switchSymbol(symbol) {
+            fetch(`/api/switch_symbol/${symbol}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        currentSymbol = symbol;
+                        priceDataCache = {}; // 清空缓存
+                        fetchKlineData();
+                        updateSymbolButtons();
+                    } else {
+                        alert(data.result || '切换币种失败');
+                    }
+                })
+                .catch(error => {
+                    console.error('切换币种失败:', error);
+                });
+        }
+
+        // 更新币种按钮状态
+        function updateSymbolButtons() {
+            const btcBtn = document.getElementById('switch-btc');
+            const ethBtn = document.getElementById('switch-eth');
+
+            if (currentSymbol === 'BTCUSDT') {
+                btcBtn.className = 'px-3 py-1 rounded-full bg-bull/20 text-bull border border-bull/30';
+                ethBtn.className = 'px-3 py-1 rounded-full bg-dark text-gray-400 border border-gray-700';
+            } else {
+                btcBtn.className = 'px-3 py-1 rounded-full bg-dark text-gray-400 border border-gray-700';
+                ethBtn.className = 'px-3 py-1 rounded-full bg-bull/20 text-bull border border-bull/30';
+            }
+        }
+
+        // 更新当前时间
+        function updateCurrentTime() {
+            document.getElementById('current-time').textContent = new Date().toLocaleString();
+        }
+
+        // 倒计时逻辑
+        function startCountdown() {
+            updateCurrentTime();
+            
+            countdown--;
+            if (countdown <= 0) {
+                countdown = refreshInterval;
+                fetchKlineData();
+                fetchGameState();
+            }
+            
+            document.getElementById('countdown-text').textContent = `${countdown}秒后刷新`;
+            document.getElementById('countdown-bar').style.width = `${(countdown / refreshInterval) * 100}%`;
+            
+            setTimeout(startCountdown, 1000);
+        }
+
+        // 初始化应用
+        function initApp() {
+            initChart();
+            fetchKlineData();
+            fetchGameState();
+            startCountdown();
+            
+            // 设置周期选择器，确保价差图表也会更新
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.time-btn').forEach(b => {
+                        b.className = 'time-btn px-3 py-1 rounded-full bg-dark text-gray-400 border border-gray-700';
+                    });
+                    
+                    btn.className = 'time-btn px-3 py-1 rounded-full bg-bull/20 text-bull border border-bull/30';
+                    selectedTime = parseInt(btn.dataset.time);
+                    
+                    // 刷新两个图表
+                    fetchKlineData();
+                });
+            });
+            
+            // 设置下注按钮
+            document.getElementById('bet-up').addEventListener('click', () => placeBet('up'));
+            document.getElementById('bet-down').addEventListener('click', () => placeBet('down'));
+            
+            // 设置重置按钮
+            document.getElementById('reset-btn').addEventListener('click', resetGame);
+
+            // 设置币种切换按钮
+            document.getElementById('switch-btc').addEventListener('click', () => switchSymbol('BTCUSDT'));
+            document.getElementById('switch-eth').addEventListener('click', () => switchSymbol('ETHUSDT'));
+        }
+
+        // 页面加载完成后初始化
+        window.addEventListener('load', initApp);
+    </script>
+</body>
+</html>
